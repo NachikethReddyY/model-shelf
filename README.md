@@ -13,26 +13,39 @@ Model Shelf is intentionally file-based. There is no web app, database, backgrou
 
 ## Install
 
-From this project directory:
+Install directly from GitHub:
 
 ```bash
-uv tool install --force .
+uv tool install --force git+https://github.com/NachikethReddyY/model-shelf.git
+```
+
+If `ms` is not found after install, add uv's tool directory to your shell:
+
+```bash
 uv tool update-shell
 ```
 
-Restart your terminal, then check:
+If your current terminal still cannot find `ms`, run this once in that terminal:
+
+```bash
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+Then check:
 
 ```bash
 ms --help
 ```
 
-You can also use the included installer:
+From a cloned repo, you can also run:
 
 ```bash
+git clone https://github.com/NachikethReddyY/model-shelf.git
+cd model-shelf
 bash scripts/install-global.sh
 ```
 
-If you do not want a global command, run from this project directory with:
+For local development without global install:
 
 ```bash
 uv run ms --help
