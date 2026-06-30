@@ -4,74 +4,41 @@ Model Shelf is a local-first model storage standard and resolver.
 
 It gives agents and local runtimes a shared, inspectable place to answer:
 
-- Where should model files live?
 - Is this model already on disk?
-- Which local path should MLX, Ollama, LM Studio, or llama.cpp use?
-- What command would download, convert, or launch this model?
+- Is it GGUF, MLX, or safetensors?
+- Who published it?
+- What quantization is it?
+- How much disk and RAM should I expect?
+- What exact command installs or launches it?
 
 Model Shelf is intentionally file-based. There is no web app, database, background service, or API server.
 
-The canonical shelf folder is visible: `models/`. Do not use `.models/` or any other hidden directory.
+The canonical shelf folder is visible: `models/`. Do not use `.models/` or any hidden directory.
 
 ## Install
 
-### macOS / Linux
-
-One-command install from GitHub:
+macOS / Linux:
 
 ```bash
 uv tool install --force git+https://github.com/NachikethReddyY/model-shelf.git
-```
-
-Make `ms` available in your current terminal:
-
-```bash
 export PATH="$HOME/.local/bin:$PATH"
-```
-
-Then check:
-
-```bash
 ms --help
 ```
 
-If you cloned the repo, use the installer script instead:
+Windows PowerShell:
+
+```powershell
+uv tool install --force git+https://github.com/NachikethReddyY/model-shelf.git
+$env:Path = "$HOME\.local\bin;$env:Path"
+ms --help
+```
+
+From a cloned repo:
 
 ```bash
 git clone https://github.com/NachikethReddyY/model-shelf.git
 cd model-shelf
 bash scripts/install-global.sh
-```
-
-The installer updates common shell files for future terminals:
-
-- `~/.zshrc`
-- `~/.zprofile`
-- `~/.zshenv`
-- `~/.bashrc`
-- `~/.bash_profile`
-
-### Windows PowerShell
-
-Install from GitHub:
-
-```powershell
-uv tool install --force git+https://github.com/NachikethReddyY/model-shelf.git
-```
-
-If `ms` is not found in the current PowerShell session:
-
-```powershell
-$env:Path = "$HOME\.local\bin;$env:Path"
-ms --help
-```
-
-If you cloned the repo, use:
-
-```bash
-git clone https://github.com/NachikethReddyY/model-shelf.git
-cd model-shelf
-pwsh scripts/install-global.ps1
 ```
 
 For local development without global install:
@@ -82,13 +49,11 @@ uv run ms --help
 
 ## Create A Shelf
 
-Run:
-
 ```bash
 ms init
 ```
 
-`ms init` asks where the shelf directory should live:
+`ms init` asks where the shelf should live:
 
 ```text
 Where should Model Shelf live? [./model-shelf]
@@ -108,58 +73,96 @@ cd ~/Models/model-shelf
 
 ## Shelf Layout
 
+Model Shelf has exactly three model storage formats:
+
 ```text
-model-shelf/
-  model-shelf.json
-  models/
-    registry.json
-    hf/
-      <namespace>/
-        <model>/
-          source/
-          mlx/
-            q4/
-            q3/
-          gguf/
-          manifest.json
-          commands.md
-    mlx/
-    gguf/
-    ollama/
-    cache/
-    logs/
-  provider-configs/
+models/
+├── gguf/
+│   └── Qwen/
+│       └── Qwen3-14B-GGUF/
+│           └── Qwen3-14B-Q4_K_M.gguf
+├── mlx/
+│   └── mlx-community/
+│       └── Qwen3-14B-4bit/
+└── safetensors/
+    └── Qwen/
+        └── Qwen3-14B/
 ```
+
+Providers and runtimes do not get top-level folders. Ollama, LM Studio, MLX, llama.cpp, vLLM, and SGLang should resolve compatible files from these three format folders.
 
 Important files:
 
 - `model-shelf.json`: shelf config and safety policy
-- `models/registry.json`: index of registered models
-- `manifest.json`: machine-readable model metadata and command templates
-- `commands.md`: human-readable command templates
+- `models/registry.json`: searchable index of registered artifacts
 
-## Add A Model
+## Search
 
-Register a Hugging Face repo:
+Search the local registry:
 
 ```bash
-ms add deepreinforce-ai/Ornith-1.0-35B-FP8
+ms search qwen
 ```
 
-This creates folders, a manifest, and command templates.
+Example output:
 
-It does **not** download the model.
+```text
+#  format       publisher      model             quant   disk    ram     installed
+-  -----------  -------------  ----------------  ------  ------  ------  ---------
+1  gguf         Qwen           Qwen3-14B-GGUF    Q4_K_M  ~9 GB   ~10 GB  no
+2  mlx          mlx-community  Qwen3-14B-4bit    4bit    ~8 GB   ~10 GB  no
+3  safetensors  Qwen           Qwen3-14B         -       ~28 GB  ~31 GB  no
+```
 
-## List Models
+Filter by format:
+
+```bash
+ms search qwen --format gguf
+ms search qwen --format mlx
+ms search qwen --format safetensors
+```
+
+## Interactive Install
+
+Search and choose a model interactively:
+
+```bash
+ms search qwen --install
+```
+
+Model Shelf will:
+
+1. Show matching artifacts.
+2. Ask which one to install.
+3. Show the exact install command.
+4. Ask for one final confirmation before running it.
+
+No download happens unless you confirm.
+
+## Direct Install
+
+Dry run:
+
+```bash
+ms install qwen --format gguf --source
+```
+
+Actually run the install:
+
+```bash
+ms install qwen --format gguf --source --yes
+```
+
+Use a different manifest command:
+
+```bash
+ms install qwen --format gguf --source --command git_lfs --yes
+```
+
+## List
 
 ```bash
 ms list
-```
-
-Example:
-
-```text
-deepreinforce-ai/Ornith-1.0-35B-FP8  models/hf/deepreinforce-ai/Ornith-1.0-35B-FP8/manifest.json
 ```
 
 ## Resolve A Runtime Path
@@ -167,43 +170,19 @@ deepreinforce-ai/Ornith-1.0-35B-FP8  models/hf/deepreinforce-ai/Ornith-1.0-35B-F
 Ask which local paths are compatible with a runtime:
 
 ```bash
-ms resolve deepreinforce-ai/Ornith-1.0-35B-FP8 --runtime mlx
+ms resolve qwen --runtime mlx
+ms resolve qwen --runtime llama.cpp
 ```
-
-Example output:
-
-```json
-{
-  "model_id": "deepreinforce-ai/Ornith-1.0-35B-FP8",
-  "runtime": "mlx",
-  "candidates": [
-    {
-      "key": "mlx_q4",
-      "path": "models/hf/deepreinforce-ai/Ornith-1.0-35B-FP8/mlx/q4",
-      "exists": true
-    }
-  ]
-}
-```
-
-`exists` means the folder exists. It does not prove that converted model files are complete.
 
 ## Show Commands
 
-Print download, conversion, and launch command templates:
+Print download and launch command templates:
 
 ```bash
-ms commands deepreinforce-ai/Ornith-1.0-35B-FP8
+ms commands qwen --format gguf
+ms commands qwen --format mlx
+ms commands qwen --format safetensors
 ```
-
-This shows commands such as:
-
-```bash
-huggingface-cli download deepreinforce-ai/Ornith-1.0-35B-FP8 --local-dir models/hf/deepreinforce-ai/Ornith-1.0-35B-FP8/source
-python3 -m mlx_lm.convert --hf-path models/hf/deepreinforce-ai/Ornith-1.0-35B-FP8/source -q --q-bits 4 --mlx-path models/hf/deepreinforce-ai/Ornith-1.0-35B-FP8/mlx/q4
-```
-
-Model Shelf only prints these commands. It does **not** run them unless you explicitly run them yourself.
 
 ## Configure Provider Paths
 
@@ -224,46 +203,28 @@ Write a generated config inside the shelf:
 ms provider-path ollama --apply
 ```
 
-That writes:
-
-```text
-provider-configs/ollama.env
-```
-
 To write a specific provider config file, pass the path explicitly:
 
 ```bash
 ms provider-path ollama --config-path ~/some/provider/config.env --apply
 ```
 
-Model Shelf will not edit real provider config files unless you provide `--config-path` and `--apply`.
+## Add A Model Artifact
+
+Register a Hugging Face artifact without downloading it:
+
+```bash
+ms add Qwen/Qwen3-14B-GGUF --format gguf --quant Q4_K_M --disk "~9 GB" --ram "~10 GB" --file Qwen3-14B-Q4_K_M.gguf
+ms add mlx-community/Qwen3-14B-4bit --format mlx --quant 4bit --disk "~8 GB" --ram "~10 GB"
+ms add Qwen/Qwen3-14B --format safetensors --disk "~28 GB" --ram "~31 GB"
+```
 
 ## Safety Rules
 
 - `ms add` registers metadata only.
-- `ms commands` prints commands only.
+- `ms search` searches the local registry only.
+- `ms install` is dry-run unless `--yes` is passed or you confirm interactively.
 - No downloads happen automatically.
 - No conversions happen automatically.
-- Original model files belong under `source/`.
-- Converted outputs belong under format folders such as `mlx/q4`, `mlx/q3`, or `gguf`.
-- Do not assume HF safetensors, MLX safetensors, GGUF, Ollama, and LM Studio files are interchangeable.
-
-## First Seeded Model
-
-This scaffold includes:
-
-```text
-deepreinforce-ai/Ornith-1.0-35B-FP8
-```
-
-Manifest:
-
-```text
-models/hf/deepreinforce-ai/Ornith-1.0-35B-FP8/manifest.json
-```
-
-Commands:
-
-```text
-models/hf/deepreinforce-ai/Ornith-1.0-35B-FP8/commands.md
-```
+- Models live only under `models/gguf`, `models/mlx`, and `models/safetensors`.
+- Do not assume GGUF, MLX, and safetensors files are interchangeable.

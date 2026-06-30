@@ -1,40 +1,15 @@
 {
-  "schema_version": "0.1",
+  "schema_version": "0.2",
   "shelf_root": "./models",
   "registry_path": "./models/registry.json",
-  "default_source_type": "huggingface",
-  "storage_layout": {
-    "huggingface_source": "models/hf/{namespace}/{name}/source",
-    "mlx_q4": "models/hf/{namespace}/{name}/mlx/q4",
-    "mlx_q3": "models/hf/{namespace}/{name}/mlx/q3",
-    "gguf": "models/hf/{namespace}/{name}/gguf",
-    "runtime_indexes": {
-      "mlx": "models/mlx",
-      "gguf": "models/gguf",
-      "ollama": "models/ollama"
-    },
-    "cache": "models/cache",
-    "logs": "models/logs"
+  "formats": {
+    "gguf": "models/gguf",
+    "mlx": "models/mlx",
+    "safetensors": "models/safetensors"
   },
   "policy": {
-    "preserve_original_files": true,
-    "commands_are_templates": true,
-    "require_explicit_confirmation_before_download": true,
-    "require_explicit_confirmation_before_conversion": true
-  },
-  "supported_formats": [
-    "hf-safetensors",
-    "mlx-safetensors-q4",
-    "mlx-safetensors-q3",
-    "gguf",
-    "ollama"
-  ],
-  "supported_runtimes": [
-    "mlx",
-    "llama.cpp",
-    "ollama",
-    "lm-studio",
-    "vllm",
-    "sglang"
-  ]
+    "visible_models_folder": true,
+    "require_confirmation_before_install": true,
+    "no_hidden_model_directories": true
+  }
 }

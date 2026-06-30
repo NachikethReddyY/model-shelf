@@ -4,13 +4,15 @@ import argparse
 import json
 import plistlib
 import shlex
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any
 
 
 DEFAULT_DIR = "./model-shelf"
-SCHEMA_VERSION = "0.1"
+SCHEMA_VERSION = "0.2"
+FORMATS = ("gguf", "mlx", "safetensors")
 SUPPORTED_PROVIDERS = ("ollama", "lmstudio", "mlx", "llama.cpp")
 
 
@@ -21,17 +23,38 @@ def main(argv: list[str] | None = None) -> None:
     init_parser = subparsers.add_parser("init", help="Initialize a Model Shelf")
     init_parser.add_argument("--dir", help="Shelf directory. If omitted, ms asks interactively.")
 
-    add_parser = subparsers.add_parser("add", help="Register a Hugging Face repo")
-    add_parser.add_argument("hf_repo")
+    add_parser = subparsers.add_parser("add", help="Register a model artifact")
+    add_parser.add_argument("repo")
+    add_parser.add_argument("--format", choices=FORMATS, default="safetensors")
+    add_parser.add_argument("--name")
+    add_parser.add_argument("--publisher")
+    add_parser.add_argument("--quant")
+    add_parser.add_argument("--disk")
+    add_parser.add_argument("--ram")
+    add_parser.add_argument("--file", help="Expected filename for single-file formats like GGUF.")
 
-    subparsers.add_parser("list", help="List registered models")
+    subparsers.add_parser("list", help="List registered model artifacts")
 
-    resolve_parser = subparsers.add_parser("resolve", help="Resolve candidate paths for a model/runtime")
-    resolve_parser.add_argument("model_id")
+    search_parser = subparsers.add_parser("search", help="Search registered model artifacts")
+    search_parser.add_argument("query", nargs="?", default="")
+    search_parser.add_argument("--format", choices=FORMATS)
+    search_parser.add_argument("--install", action="store_true", help="Interactively select and install a result.")
+
+    resolve_parser = subparsers.add_parser("resolve", help="Resolve candidate paths for a runtime")
+    resolve_parser.add_argument("query")
     resolve_parser.add_argument("--runtime")
+    resolve_parser.add_argument("--format", choices=FORMATS)
 
-    commands_parser = subparsers.add_parser("commands", help="Print command templates for a model")
-    commands_parser.add_argument("model_id")
+    commands_parser = subparsers.add_parser("commands", help="Print command templates for a model artifact")
+    commands_parser.add_argument("query")
+    commands_parser.add_argument("--format", choices=FORMATS)
+
+    install_parser = subparsers.add_parser("install", help="Install model files using registry command templates")
+    install_parser.add_argument("query")
+    install_parser.add_argument("--source", action="store_true", help="Install from the artifact source repository.")
+    install_parser.add_argument("--format", choices=FORMATS)
+    install_parser.add_argument("--command", dest="download_command", default="hf_snapshot")
+    install_parser.add_argument("--yes", action="store_true", help="Run the command. Without this, show a dry run and ask in interactive terminals.")
 
     provider_parser = subparsers.add_parser("provider-path", help="Configure a provider to use a Model Shelf path")
     provider_parser.add_argument("provider", choices=SUPPORTED_PROVIDERS)
@@ -44,13 +67,17 @@ def main(argv: list[str] | None = None) -> None:
     if args.command == "init":
         init(args.dir)
     elif args.command == "add":
-        add(args.hf_repo)
+        add(args.repo, args.format, args.name, args.publisher, args.quant, args.disk, args.ram, args.file)
     elif args.command == "list":
         list_models()
+    elif args.command == "search":
+        search(args.query, args.format, args.install)
     elif args.command == "resolve":
-        resolve(args.model_id, args.runtime)
+        resolve(args.query, args.runtime, args.format)
     elif args.command == "commands":
-        print_commands(args.model_id)
+        print_commands(args.query, args.format)
+    elif args.command == "install":
+        install(args.query, args.format, args.download_command, args.yes)
     elif args.command == "provider-path":
         provider_path(args.provider, args.models_path, args.config_path, args.apply)
 
@@ -59,16 +86,7 @@ def init(directory: str | None) -> None:
     if directory is None:
         directory = ask_directory()
     shelf_root = Path(directory).expanduser().resolve()
-    init_paths: tuple[str, ...] = (
-        "models/hf",
-        "models/mlx",
-        "models/gguf",
-        "models/ollama",
-        "models/cache",
-        "models/logs",
-        "provider-configs",
-    )
-    for path in init_paths:
+    for path in ("models/gguf", "models/mlx", "models/safetensors", "provider-configs"):
         (shelf_root / path).mkdir(parents=True, exist_ok=True)
 
     config_path = shelf_root / "model-shelf.json"
@@ -82,65 +100,98 @@ def init(directory: str | None) -> None:
     print(f"Next: cd {shlex.quote(str(shelf_root))}")
 
 
-def add(repo: str) -> None:
+def add(repo: str, fmt: str, name: str | None, publisher: str | None, quant: str | None, disk: str | None, ram: str | None, file: str | None) -> None:
     shelf_root = find_shelf_root()
-    model_id = normalize_repo(repo)
-    namespace, name = split_model_id(model_id)
-    model_dir = shelf_root / "models" / "hf" / namespace / name
-    for path in ("source", "mlx/q4", "mlx/q3", "gguf"):
-        (model_dir / path).mkdir(parents=True, exist_ok=True)
-
-    manifest = create_manifest(model_id)
-    write_json(model_dir / "manifest.json", manifest)
-    (model_dir / "commands.md").write_text(commands_markdown(manifest), encoding="utf-8")
+    model = model_from_repo(repo, fmt, name, publisher, quant, disk, ram, file)
+    ensure_storage_path(shelf_root, model)
 
     registry = read_registry(shelf_root)
-    entry = {
-        "model_id": model_id,
-        "manifest_path": f"models/hf/{namespace}/{name}/manifest.json",
-        "source_type": "huggingface",
-        "source_url": f"https://huggingface.co/{model_id}",
-        "available_formats": [
-            "hf-repo",
-            "hf-safetensors-source-planned",
-            "mlx-q4-planned",
-            "mlx-q3-planned",
-            "gguf-planned",
-        ],
-        "notes": "Registered as metadata and command templates only. No model files have been downloaded.",
-    }
-    registry["models"] = [model for model in registry["models"] if model["model_id"] != model_id]
-    registry["models"].append(entry)
+    registry["models"] = [entry for entry in registry["models"] if entry["id"] != model["id"]]
+    registry["models"].append(model)
     write_json(shelf_root / "models" / "registry.json", registry)
-    print(f"Registered {model_id}")
-    print(f"Manifest: {entry['manifest_path']}")
+    print(f"Registered {model['id']}")
+    print(f"Path: {model['path']}")
 
 
 def list_models() -> None:
     shelf_root = find_shelf_root()
-    for model in read_registry(shelf_root)["models"]:
-        print(f"{model['model_id']}\t{model['manifest_path']}")
+    print_models(read_registry(shelf_root)["models"], shelf_root)
 
 
-def resolve(model_id: str, runtime: str | None) -> None:
+def search(query: str, fmt: str | None, install_selected: bool) -> None:
     shelf_root = find_shelf_root()
-    manifest = read_manifest(shelf_root, model_id)
+    matches = search_registry(shelf_root, query, fmt)
+    print_models(matches, shelf_root)
+    if install_selected:
+        selected = choose_model(matches)
+        if selected:
+            install_model(shelf_root, selected, "hf_snapshot", yes=False, ask=True)
+
+
+def resolve(query: str, runtime: str | None, fmt: str | None) -> None:
+    shelf_root = find_shelf_root()
+    matches = search_registry(shelf_root, query, fmt)
     candidates = []
-    for key, runtimes in manifest.get("compatible_runtimes", {}).items():
-        if runtime is None or runtime in runtimes:
-            local_path = manifest.get("local_paths", {}).get(key)
-            exists = bool(local_path and (shelf_root / local_path).exists())
-            candidates.append({"key": key, "path": local_path, "exists": exists})
-    print(json.dumps({"model_id": model_id, "runtime": runtime, "candidates": candidates}, indent=2))
+    for model in matches:
+        if runtime and runtime not in model.get("compatible_runtimes", []):
+            continue
+        candidates.append(
+            {
+                "id": model["id"],
+                "format": model["format"],
+                "publisher": model["publisher"],
+                "path": model["path"],
+                "installed": is_installed(shelf_root, model),
+                "compatible_runtimes": model.get("compatible_runtimes", []),
+            }
+        )
+    print(json.dumps({"query": query, "runtime": runtime, "format": fmt, "candidates": candidates}, indent=2))
 
 
-def print_commands(model_id: str) -> None:
+def print_commands(query: str, fmt: str | None) -> None:
     shelf_root = find_shelf_root()
-    manifest = read_manifest(shelf_root, model_id)
-    for section in ("download_commands", "conversion_commands", "launch_commands"):
+    model = require_one(search_registry(shelf_root, query, fmt), query)
+    print(f"{model['id']} ({model['format']})")
+    for section in ("download_commands", "launch_commands"):
         print(f"\n{section}")
-        for name, command in manifest.get(section, {}).items():
+        for name, command in model.get(section, {}).items():
             print(f"  {name}: {shlex.join(command)}")
+
+
+def install(query: str, fmt: str | None, command_key: str, yes: bool) -> None:
+    shelf_root = find_shelf_root()
+    matches = search_registry(shelf_root, query, fmt)
+    model = matches[0] if len(matches) == 1 else choose_model(matches)
+    if not model:
+        raise SystemExit("No model selected.")
+    install_model(shelf_root, model, command_key, yes=yes, ask=not yes)
+
+
+def install_model(shelf_root: Path, model: dict[str, Any], command_key: str, yes: bool, ask: bool) -> None:
+    command = model.get("download_commands", {}).get(command_key)
+    if not command:
+        available = ", ".join(sorted(model.get("download_commands", {}).keys())) or "none"
+        raise SystemExit(f"Download command not found: {command_key}. Available: {available}")
+
+    print("Install plan:")
+    print(f"  id: {model['id']}")
+    print(f"  publisher: {model['publisher']}")
+    print(f"  format: {model['format']}")
+    print(f"  quant: {model.get('quantization') or 'none'}")
+    print(f"  disk: {model.get('disk_size') or 'unknown'}")
+    print(f"  approx ram: {model.get('approx_ram') or 'unknown'}")
+    print(f"  target: {shelf_root / model['path']}")
+    print(f"  command: {shlex.join(command)}")
+
+    if not yes and ask and sys.stdin.isatty():
+        answer = input("\nRun this install command now? [y/N] ").strip().lower()
+        yes = answer in {"y", "yes"}
+
+    if not yes:
+        print("\nDry run only. Re-run with --yes or confirm interactively to install.")
+        return
+
+    subprocess.run(command, cwd=shelf_root, check=True)
 
 
 def provider_path(provider: str, models_path: str | None, config_path: str | None, apply: bool) -> None:
@@ -175,10 +226,10 @@ def provider_config_plan(shelf_root: Path, provider: str, models_path: Path, con
     generated = shelf_root / "provider-configs"
     if provider == "ollama":
         path = Path(config_path).expanduser() if config_path else generated / "ollama.env"
-        return {"path": path, "format": "env", "content": {"OLLAMA_MODELS": str(models_path / "ollama")}}
+        return {"path": path, "format": "env", "content": {"OLLAMA_MODELS": str(models_path / "gguf")}}
     if provider == "lmstudio":
         path = Path(config_path).expanduser() if config_path else generated / "lmstudio.json"
-        return {"path": path, "format": "json", "content": {"modelsPath": str(models_path)}}
+        return {"path": path, "format": "json", "content": {"modelsPath": str(models_path / "gguf")}}
     if provider == "mlx":
         path = Path(config_path).expanduser() if config_path else generated / "mlx.json"
         return {"path": path, "format": "json", "content": {"model_shelf_path": str(models_path), "mlx_models_path": str(models_path / "mlx")}}
@@ -186,6 +237,140 @@ def provider_config_plan(shelf_root: Path, provider: str, models_path: Path, con
         path = Path(config_path).expanduser() if config_path else generated / "llama-cpp.env"
         return {"path": path, "format": "env", "content": {"LLAMA_CPP_MODELS": str(models_path / "gguf")}}
     raise SystemExit(f"Unsupported provider: {provider}")
+
+
+def model_from_repo(repo: str, fmt: str, name: str | None, publisher: str | None, quant: str | None, disk: str | None, ram: str | None, file: str | None) -> dict[str, Any]:
+    repo_id = normalize_repo(repo)
+    default_publisher, repo_name = split_model_id(repo_id)
+    publisher = publisher or default_publisher
+    name = name or repo_name
+    path = format_path(fmt, publisher, name)
+    expected_files = [file] if file else []
+    return {
+        "id": f"{fmt}:{publisher}/{name}",
+        "name": name,
+        "publisher": publisher,
+        "source_repo": repo_id,
+        "source_url": f"https://huggingface.co/{repo_id}",
+        "format": fmt,
+        "quantization": quant or infer_quantization(name),
+        "disk_size": disk,
+        "approx_ram": ram or infer_ram(name, quant or infer_quantization(name), fmt),
+        "path": path,
+        "expected_files": expected_files,
+        "compatible_runtimes": compatible_runtimes(fmt),
+        "download_commands": download_commands(repo_id, path, expected_files),
+        "launch_commands": launch_commands(fmt, path, expected_files),
+        "notes": "Registered as an installable artifact. Install commands are explicit and confirmed before execution.",
+    }
+
+
+def search_registry(shelf_root: Path, query: str, fmt: str | None) -> list[dict[str, Any]]:
+    terms = [term.lower() for term in query.split() if term]
+    models = read_registry(shelf_root)["models"]
+    matches = []
+    for model in models:
+        if fmt and model.get("format") != fmt:
+            continue
+        haystack = " ".join(str(model.get(key, "")) for key in ("id", "name", "publisher", "source_repo", "format", "quantization")).lower()
+        if all(term in haystack for term in terms):
+            matches.append(model)
+    return matches
+
+
+def print_models(models: list[dict[str, Any]], shelf_root: Path) -> None:
+    if not models:
+        print("No models found.")
+        return
+    rows = []
+    for idx, model in enumerate(models, start=1):
+        rows.append(
+            [
+                str(idx),
+                model["format"],
+                model["publisher"],
+                model["name"],
+                model.get("quantization") or "-",
+                model.get("disk_size") or "?",
+                model.get("approx_ram") or "?",
+                "yes" if is_installed(shelf_root, model) else "no",
+            ]
+        )
+    print_table(["#", "format", "publisher", "model", "quant", "disk", "ram", "installed"], rows)
+
+
+def choose_model(models: list[dict[str, Any]]) -> dict[str, Any] | None:
+    if not models:
+        print("No models found.")
+        return None
+    if not sys.stdin.isatty():
+        return models[0] if len(models) == 1 else None
+    answer = input("\nSelect a model number to install, or press Enter to cancel: ").strip()
+    if not answer:
+        return None
+    try:
+        index = int(answer)
+    except ValueError:
+        raise SystemExit("Selection must be a number.")
+    if index < 1 or index > len(models):
+        raise SystemExit("Selection out of range.")
+    return models[index - 1]
+
+
+def require_one(models: list[dict[str, Any]], query: str) -> dict[str, Any]:
+    if not models:
+        raise SystemExit(f"No model found for: {query}")
+    if len(models) > 1:
+        print_models(models, find_shelf_root())
+        raise SystemExit("More than one model matched. Narrow the query or pass --format.")
+    return models[0]
+
+
+def is_installed(shelf_root: Path, model: dict[str, Any]) -> bool:
+    path = shelf_root / model["path"]
+    expected_files = model.get("expected_files", [])
+    if expected_files:
+        return all((path / file).exists() for file in expected_files)
+    return path.exists() and any(child.name != ".gitkeep" for child in path.iterdir())
+
+
+def ensure_storage_path(shelf_root: Path, model: dict[str, Any]) -> None:
+    path = shelf_root / model["path"]
+    path.mkdir(parents=True, exist_ok=True)
+    keep = path / ".gitkeep"
+    if not keep.exists():
+        keep.touch()
+
+
+def format_path(fmt: str, publisher: str, name: str) -> str:
+    return f"models/{fmt}/{publisher}/{name}"
+
+
+def download_commands(repo_id: str, path: str, expected_files: list[str]) -> dict[str, list[str]]:
+    command = ["huggingface-cli", "download", repo_id, "--local-dir", path]
+    if expected_files:
+        command = ["huggingface-cli", "download", repo_id, *expected_files, "--local-dir", path]
+    return {
+        "hf_snapshot": command,
+        "git_lfs": ["git", "clone", f"https://huggingface.co/{repo_id}", path],
+    }
+
+
+def launch_commands(fmt: str, path: str, expected_files: list[str]) -> dict[str, list[str]]:
+    if fmt == "gguf":
+        model_path = f"{path}/{expected_files[0]}" if expected_files else path
+        return {"llama_cpp": ["llama-server", "-m", model_path], "lmstudio": ["lms", "server", "start", "--model", model_path]}
+    if fmt == "mlx":
+        return {"mlx": ["mlx_lm.server", "--model", path]}
+    return {"vllm": ["vllm", "serve", path], "sglang": ["python3", "-m", "sglang.launch_server", "--model-path", path]}
+
+
+def compatible_runtimes(fmt: str) -> list[str]:
+    if fmt == "gguf":
+        return ["llama.cpp", "lm-studio", "ollama"]
+    if fmt == "mlx":
+        return ["mlx"]
+    return ["vllm", "sglang"]
 
 
 def ask_directory() -> str:
@@ -212,101 +397,13 @@ def read_registry(shelf_root: Path) -> dict[str, Any]:
     return json.loads(registry_path.read_text(encoding="utf-8"))
 
 
-def read_manifest(shelf_root: Path, model_id: str) -> dict[str, Any]:
-    registry = read_registry(shelf_root)
-    for model in registry["models"]:
-        if model["model_id"] == model_id:
-            return json.loads((shelf_root / model["manifest_path"]).read_text(encoding="utf-8"))
-    raise SystemExit(f"Model not found: {model_id}")
-
-
-def create_manifest(model_id: str) -> dict[str, Any]:
-    namespace, name = split_model_id(model_id)
-    base = f"models/hf/{namespace}/{name}"
-    return {
-        "schema_version": SCHEMA_VERSION,
-        "model_id": model_id,
-        "name": name,
-        "source_url": f"https://huggingface.co/{model_id}",
-        "source_type": "huggingface",
-        "architecture": None,
-        "parameter_count": infer_parameter_count(name),
-        "available_formats": [
-            {"format": "hf-repo", "status": "remote", "path": None},
-            {"format": "hf-safetensors", "status": "planned", "path": f"{base}/source"},
-            {"format": "mlx-safetensors", "quantization": "q4", "status": "planned", "path": f"{base}/mlx/q4"},
-            {"format": "mlx-safetensors", "quantization": "q3", "status": "planned", "path": f"{base}/mlx/q3"},
-            {"format": "gguf", "status": "planned", "path": f"{base}/gguf"},
-        ],
-        "local_paths": {"source": f"{base}/source", "mlx_q4": f"{base}/mlx/q4", "mlx_q3": f"{base}/mlx/q3", "gguf": f"{base}/gguf"},
-        "compatible_runtimes": {"source": ["vllm", "sglang"], "mlx_q4": ["mlx"], "mlx_q3": ["mlx"], "gguf": ["llama.cpp", "lm-studio"], "ollama": ["ollama"]},
-        "download_commands": {
-            "hf_snapshot": ["huggingface-cli", "download", model_id, "--local-dir", f"{base}/source"],
-            "git_lfs": ["git", "clone", f"https://huggingface.co/{model_id}", f"{base}/source"],
-        },
-        "conversion_commands": {
-            "mlx_q4": ["python3", "-m", "mlx_lm.convert", "--hf-path", f"{base}/source", "-q", "--q-bits", "4", "--mlx-path", f"{base}/mlx/q4"],
-            "mlx_q3": ["python3", "-m", "mlx_lm.convert", "--hf-path", f"{base}/source", "-q", "--q-bits", "3", "--mlx-path", f"{base}/mlx/q3"],
-            "gguf": ["python3", "llama.cpp/convert_hf_to_gguf.py", f"{base}/source", "--outfile", f"{base}/gguf/{name}.gguf"],
-        },
-        "launch_commands": {
-            "mlx_q4": ["mlx_lm.server", "--model", f"{base}/mlx/q4", "--host", "127.0.0.1", "--port", "8081"],
-            "mlx_q3": ["mlx_lm.server", "--model", f"{base}/mlx/q3", "--host", "127.0.0.1", "--port", "8081"],
-            "llama_cpp_gguf": ["llama-server", "-m", f"{base}/gguf/{name}.gguf", "--host", "127.0.0.1", "--port", "8082"],
-            "vllm_source": ["vllm", "serve", f"{base}/source", "--host", "127.0.0.1", "--port", "8083"],
-            "sglang_source": ["python3", "-m", "sglang.launch_server", "--model-path", f"{base}/source", "--host", "127.0.0.1", "--port", "8084"],
-        },
-        "notes": [
-            "This manifest is a resolver record and command catalog, not proof that files exist.",
-            "Do not run download_commands or conversion_commands unless the user explicitly asks.",
-            "Preserve source files under source/ and write converted artifacts to separate format folders.",
-        ],
-    }
-
-
-def commands_markdown(manifest: dict[str, Any]) -> str:
-    return f"""# {manifest['name']} Commands
-
-These commands are templates. Show the exact command before executing.
-
-## Pull Hugging Face Repo
-
-```bash
-{shlex.join(manifest['download_commands']['hf_snapshot'])}
-```
-
-## Convert To MLX 4-bit
-
-```bash
-{shlex.join(manifest['conversion_commands']['mlx_q4'])}
-```
-
-## Convert To MLX 3-bit
-
-```bash
-{shlex.join(manifest['conversion_commands']['mlx_q3'])}
-```
-
-## Optionally Convert To GGUF
-
-```bash
-{shlex.join(manifest['conversion_commands']['gguf'])}
-```
-"""
-
-
 def default_config() -> dict[str, Any]:
     return {
         "schema_version": SCHEMA_VERSION,
         "shelf_root": "./models",
         "registry_path": "./models/registry.json",
-        "default_source_type": "huggingface",
-        "policy": {
-            "preserve_original_files": True,
-            "commands_are_templates": True,
-            "require_explicit_confirmation_before_download": True,
-            "require_explicit_confirmation_before_conversion": True,
-        },
+        "formats": {"gguf": "models/gguf", "mlx": "models/mlx", "safetensors": "models/safetensors"},
+        "policy": {"visible_models_folder": True, "require_confirmation_before_install": True},
     }
 
 
@@ -321,11 +418,37 @@ def split_model_id(model_id: str) -> tuple[str, str]:
     return parts[0], parts[1]
 
 
-def infer_parameter_count(name: str) -> str | None:
+def infer_quantization(name: str) -> str | None:
     import re
 
-    match = re.search(r"(\d+(?:\.\d+)?B)", name, re.IGNORECASE)
+    match = re.search(r"(Q\d(?:_[A-Z]+)*|\d+bit|FP\d+|BF16|FP16)", name, re.IGNORECASE)
     return match.group(1) if match else None
+
+
+def infer_ram(name: str, quant: str | None, fmt: str) -> str | None:
+    import re
+
+    params = re.search(r"(\d+(?:\.\d+)?)B", name, re.IGNORECASE)
+    if not params:
+        return None
+    billions = float(params.group(1))
+    if quant and ("q4" in quant.lower() or "4bit" in quant.lower()):
+        return f"~{max(1, round(billions * 0.7))} GB"
+    if quant and "q3" in quant.lower():
+        return f"~{max(1, round(billions * 0.55))} GB"
+    if fmt == "safetensors":
+        return f"~{round(billions * 2.2)} GB"
+    return f"~{round(billions)} GB"
+
+
+def print_table(headers: list[str], rows: list[list[str]]) -> None:
+    widths = [len(header) for header in headers]
+    for row in rows:
+        widths = [max(width, len(cell)) for width, cell in zip(widths, row)]
+    print("  ".join(header.ljust(width) for header, width in zip(headers, widths)))
+    print("  ".join("-" * width for width in widths))
+    for row in rows:
+        print("  ".join(cell.ljust(width) for cell, width in zip(row, widths)))
 
 
 def read_json_if_exists(path: Path) -> dict[str, Any]:

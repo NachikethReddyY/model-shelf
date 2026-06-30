@@ -1,19 +1,189 @@
 {
-  "schema_version": "0.1",
+  "schema_version": "0.2",
   "models": [
     {
-      "model_id": "deepreinforce-ai/Ornith-1.0-35B-FP8",
-      "manifest_path": "models/hf/deepreinforce-ai/Ornith-1.0-35B-FP8/manifest.json",
-      "source_type": "huggingface",
-      "source_url": "https://huggingface.co/deepreinforce-ai/Ornith-1.0-35B-FP8",
-      "available_formats": [
-        "hf-repo",
-        "hf-safetensors-source-planned",
-        "mlx-q4-planned",
-        "mlx-q3-planned",
-        "gguf-planned"
+      "id": "gguf:Qwen/Qwen3-14B-GGUF",
+      "name": "Qwen3-14B-GGUF",
+      "publisher": "Qwen",
+      "source_repo": "Qwen/Qwen3-14B-GGUF",
+      "source_url": "https://huggingface.co/Qwen/Qwen3-14B-GGUF",
+      "format": "gguf",
+      "quantization": "Q4_K_M",
+      "disk_size": "~9 GB",
+      "approx_ram": "~10 GB",
+      "path": "models/gguf/Qwen/Qwen3-14B-GGUF",
+      "expected_files": [
+        "Qwen3-14B-Q4_K_M.gguf"
       ],
-      "notes": "Registered as metadata and command templates only. No model files have been downloaded."
+      "compatible_runtimes": [
+        "llama.cpp",
+        "lm-studio",
+        "ollama"
+      ],
+      "download_commands": {
+        "hf_snapshot": [
+          "huggingface-cli",
+          "download",
+          "Qwen/Qwen3-14B-GGUF",
+          "Qwen3-14B-Q4_K_M.gguf",
+          "--local-dir",
+          "models/gguf/Qwen/Qwen3-14B-GGUF"
+        ],
+        "git_lfs": [
+          "git",
+          "clone",
+          "https://huggingface.co/Qwen/Qwen3-14B-GGUF",
+          "models/gguf/Qwen/Qwen3-14B-GGUF"
+        ]
+      },
+      "launch_commands": {
+        "llama_cpp": [
+          "llama-server",
+          "-m",
+          "models/gguf/Qwen/Qwen3-14B-GGUF/Qwen3-14B-Q4_K_M.gguf"
+        ],
+        "lmstudio": [
+          "lms",
+          "server",
+          "start",
+          "--model",
+          "models/gguf/Qwen/Qwen3-14B-GGUF/Qwen3-14B-Q4_K_M.gguf"
+        ]
+      },
+      "notes": "GGUF single-file artifact for llama.cpp-style runtimes."
+    },
+    {
+      "id": "mlx:mlx-community/Qwen3-14B-4bit",
+      "name": "Qwen3-14B-4bit",
+      "publisher": "mlx-community",
+      "source_repo": "mlx-community/Qwen3-14B-4bit",
+      "source_url": "https://huggingface.co/mlx-community/Qwen3-14B-4bit",
+      "format": "mlx",
+      "quantization": "4bit",
+      "disk_size": "~8 GB",
+      "approx_ram": "~10 GB",
+      "path": "models/mlx/mlx-community/Qwen3-14B-4bit",
+      "expected_files": [],
+      "compatible_runtimes": [
+        "mlx"
+      ],
+      "download_commands": {
+        "hf_snapshot": [
+          "huggingface-cli",
+          "download",
+          "mlx-community/Qwen3-14B-4bit",
+          "--local-dir",
+          "models/mlx/mlx-community/Qwen3-14B-4bit"
+        ],
+        "git_lfs": [
+          "git",
+          "clone",
+          "https://huggingface.co/mlx-community/Qwen3-14B-4bit",
+          "models/mlx/mlx-community/Qwen3-14B-4bit"
+        ]
+      },
+      "launch_commands": {
+        "mlx": [
+          "mlx_lm.server",
+          "--model",
+          "models/mlx/mlx-community/Qwen3-14B-4bit"
+        ]
+      },
+      "notes": "MLX-format model folder."
+    },
+    {
+      "id": "safetensors:Qwen/Qwen3-14B",
+      "name": "Qwen3-14B",
+      "publisher": "Qwen",
+      "source_repo": "Qwen/Qwen3-14B",
+      "source_url": "https://huggingface.co/Qwen/Qwen3-14B",
+      "format": "safetensors",
+      "quantization": null,
+      "disk_size": "~28 GB",
+      "approx_ram": "~31 GB",
+      "path": "models/safetensors/Qwen/Qwen3-14B",
+      "expected_files": [],
+      "compatible_runtimes": [
+        "vllm",
+        "sglang"
+      ],
+      "download_commands": {
+        "hf_snapshot": [
+          "huggingface-cli",
+          "download",
+          "Qwen/Qwen3-14B",
+          "--local-dir",
+          "models/safetensors/Qwen/Qwen3-14B"
+        ],
+        "git_lfs": [
+          "git",
+          "clone",
+          "https://huggingface.co/Qwen/Qwen3-14B",
+          "models/safetensors/Qwen/Qwen3-14B"
+        ]
+      },
+      "launch_commands": {
+        "vllm": [
+          "vllm",
+          "serve",
+          "models/safetensors/Qwen/Qwen3-14B"
+        ],
+        "sglang": [
+          "python3",
+          "-m",
+          "sglang.launch_server",
+          "--model-path",
+          "models/safetensors/Qwen/Qwen3-14B"
+        ]
+      },
+      "notes": "Original safetensors/Hugging Face style model folder."
+    },
+    {
+      "id": "safetensors:deepreinforce-ai/Ornith-1.0-35B-FP8",
+      "name": "Ornith-1.0-35B-FP8",
+      "publisher": "deepreinforce-ai",
+      "source_repo": "deepreinforce-ai/Ornith-1.0-35B-FP8",
+      "source_url": "https://huggingface.co/deepreinforce-ai/Ornith-1.0-35B-FP8",
+      "format": "safetensors",
+      "quantization": "FP8",
+      "disk_size": "~35 GB",
+      "approx_ram": "~40 GB",
+      "path": "models/safetensors/deepreinforce-ai/Ornith-1.0-35B-FP8",
+      "expected_files": [],
+      "compatible_runtimes": [
+        "vllm",
+        "sglang"
+      ],
+      "download_commands": {
+        "hf_snapshot": [
+          "huggingface-cli",
+          "download",
+          "deepreinforce-ai/Ornith-1.0-35B-FP8",
+          "--local-dir",
+          "models/safetensors/deepreinforce-ai/Ornith-1.0-35B-FP8"
+        ],
+        "git_lfs": [
+          "git",
+          "clone",
+          "https://huggingface.co/deepreinforce-ai/Ornith-1.0-35B-FP8",
+          "models/safetensors/deepreinforce-ai/Ornith-1.0-35B-FP8"
+        ]
+      },
+      "launch_commands": {
+        "vllm": [
+          "vllm",
+          "serve",
+          "models/safetensors/deepreinforce-ai/Ornith-1.0-35B-FP8"
+        ],
+        "sglang": [
+          "python3",
+          "-m",
+          "sglang.launch_server",
+          "--model-path",
+          "models/safetensors/deepreinforce-ai/Ornith-1.0-35B-FP8"
+        ]
+      },
+      "notes": "Registered safetensors artifact. No files are downloaded by default."
     }
   ]
 }
