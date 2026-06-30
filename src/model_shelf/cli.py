@@ -46,6 +46,9 @@ def main(argv: list[str] | None = None) -> None:
     search_parser.add_argument("--remote", action="store_true", help="Search HuggingFace in addition to local registry.")
     search_parser.add_argument("--no-local", action="store_true", help="Skip local registry, search HuggingFace only.")
     search_parser.add_argument("--install", action="store_true", help="Interactively select and install a result.")
+    search_parser.add_argument("--min-params", help="Minimum param count (e.g., '9B' or '9'). Filters out smaller models.")
+    search_parser.add_argument("--max-params", help="Maximum param count (e.g., '35B' or '35'). Filters out larger models.")
+    search_parser.add_argument("--sort", choices=["params", "params-desc", "downloads"], default="downloads", help="Sort results. Default: downloads (HF sort order).")
 
     resolve_parser = subparsers.add_parser("resolve", help="Resolve candidate paths for a runtime")
     resolve_parser.add_argument("query")
@@ -82,7 +85,7 @@ def main(argv: list[str] | None = None) -> None:
     elif args.command == "list":
         list_models()
     elif args.command == "search":
-        search(args.query, args.format, args.remote, args.no_local, args.install)
+        search(args.query, args.format, args.remote, args.no_local, args.install, args.min_params, args.max_params, args.sort)
     elif args.command == "resolve":
         resolve(args.query, args.runtime, args.format)
     elif args.command == "commands":
@@ -134,7 +137,7 @@ def list_models() -> None:
     print_models(read_registry(shelf_root)["models"], shelf_root)
 
 
-def search(query: str, fmt: str | None, remote: bool, no_local: bool, install_selected: bool) -> None:
+def search(query: str, fmt: str | None, remote: bool, no_local: bool, install_selected: bool, min_params: str | None, max_params: str | None, sort: str) -> None:
     shelf_root = find_shelf_root()
     all_matches = []
 
@@ -151,6 +154,27 @@ def search(query: str, fmt: str | None, remote: bool, no_local: bool, install_se
             all_matches.extend(hf_results)
         except Exception as exc:
             print(f"HuggingFace search failed: {exc}", file=sys.stderr)
+
+    # Filter by param size
+    if min_params or max_params:
+        min_val = parse_param_size(min_params) if min_params else 0.0
+        max_val = parse_param_size(max_params) if max_params else float("inf")
+        filtered = []
+        for m in all_matches:
+            p = extract_params(m["name"])
+            if p is not None and min_val <= p <= max_val:
+                filtered.append(m)
+        all_matches = filtered
+
+    # Sort
+    if sort == "params":
+        for m in all_matches:
+            m["_sort_val"] = extract_params(m["name"]) or float("inf")
+        all_matches.sort(key=lambda m: m["_sort_val"])
+    elif sort == "params-desc":
+        for m in all_matches:
+            m["_sort_val"] = extract_params(m["name"]) or 0.0
+        all_matches.sort(key=lambda m: m["_sort_val"], reverse=True)
 
     if not all_matches:
         print("No models found.")
@@ -585,6 +609,22 @@ def infer_ram(name: str, quant: str | None, fmt: str) -> str | None:
     if fmt == "safetensors":
         return f"~{round(billions * 2.2)} GB"
     return f"~{round(billions)} GB"
+
+
+def extract_params(name: str) -> float | None:
+    """Extract param count in billions from model name (e.g., '14B' -> 14.0)."""
+    import re
+
+    match = re.search(r"(\d+(?:\.\d+)?)B", name, re.IGNORECASE)
+    return float(match.group(1)) if match else None
+
+
+def parse_param_size(s: str) -> float:
+    """Parse '9B' or '35b' or '9' to float billions."""
+    s = s.strip().upper()
+    if s.endswith("B"):
+        return float(s[:-1])
+    return float(s)
 
 
 def print_table(headers: list[str], rows: list[list[str]]) -> None:

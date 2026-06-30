@@ -52,7 +52,7 @@ Registry records include:
 
 1. Read `model-shelf.json`.
 2. Read `models/registry.json`.
-3. Run or emulate `ms search <query>` before proposing a download.
+3. Run or emulate `ms search <query>` before proposing a download. Can filter by param size with `--min-params`/`--max-params` and sort with `--sort params|params-desc|downloads`.
 4. Prefer an already installed artifact when one matches the requested runtime.
 5. If files are missing, show the matching command from `download_commands`.
 6. Do not execute install commands unless the user explicitly confirms.
@@ -66,8 +66,11 @@ ms init
 ms search qwen
 ms search qwen --format gguf
 ms search qwen --install
+ms search qwen --min-params 9B --max-params 35B
+ms search qwen --sort params
 ms install qwen --format gguf --source
 ms install qwen --format gguf --source --yes
+ms install https://huggingface.co/Qwen/Qwen3-14B-GGUF
 ms resolve qwen --runtime llama.cpp
 ms commands qwen --format gguf
 ms provider-path ollama
@@ -75,9 +78,13 @@ ms update --dry-run
 ms update
 ```
 
-`ms search --install` is interactive: it shows matches, asks the user to select a model, shows the exact install command, then asks for one final confirmation.
+`ms search --install` is interactive: shows match table, asks user to select number, shows install plan, then asks for one final confirmation.
 
-`ms install <query> --source` is dry-run by default. It may execute a download only when the user passes `--yes` or confirms interactively.
+`ms install <query> --source` shows match table when multiple results found, then interactive picker. Dry-run by default; executes only with `--yes` or interactive confirmation.
+
+`ms install <URL>` (HF repo URL) installs directly, bypassing registry and search entirely.
+
+`ms search --sort params` sorts ascending by param count; `--sort params-desc` descending; `--sort downloads` (default) uses HF sort.
 
 `ms provider-path <provider>` is dry-run by default. Use `--apply` only after the user confirms the path and provider config target. Use `--config-path` when editing a real provider config file outside the shelf.
 
