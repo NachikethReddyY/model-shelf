@@ -1,0 +1,7 @@
+.venv/
+__pycache__/
+*.py[cod]
+.DS_Store
+provider-configs/*.env
+provider-configs/*.json
+provider-configs/*.plist

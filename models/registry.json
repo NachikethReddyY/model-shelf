@@ -1,0 +1,19 @@
+{
+  "schema_version": "0.1",
+  "models": [
+    {
+      "model_id": "deepreinforce-ai/Ornith-1.0-35B-FP8",
+      "manifest_path": "models/hf/deepreinforce-ai/Ornith-1.0-35B-FP8/manifest.json",
+      "source_type": "huggingface",
+      "source_url": "https://huggingface.co/deepreinforce-ai/Ornith-1.0-35B-FP8",
+      "available_formats": [
+        "hf-repo",
+        "hf-safetensors-source-planned",
+        "mlx-q4-planned",
+        "mlx-q3-planned",
+        "gguf-planned"
+      ],
+      "notes": "Registered as metadata and command templates only. No model files have been downloaded."
+    }
+  ]
+}

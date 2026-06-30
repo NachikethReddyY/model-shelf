@@ -1,0 +1,17 @@
+[project]
+name = "model-shelf"
+version = "0.1.0"
+description = "Local-first model storage standard and resolver."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.scripts]
+ms = "model_shelf.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv]
+package = true
