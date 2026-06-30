@@ -13,19 +13,15 @@ Model Shelf is intentionally file-based. There is no web app, database, backgrou
 
 ## Install
 
-Install directly from GitHub:
+### macOS / Linux
+
+One-command install from GitHub:
 
 ```bash
 uv tool install --force git+https://github.com/NachikethReddyY/model-shelf.git
 ```
 
-If `ms` is not found after install, add uv's tool directory to your shell:
-
-```bash
-uv tool update-shell
-```
-
-If your current terminal still cannot find `ms`, run this once in that terminal:
+Make `ms` available in your current terminal:
 
 ```bash
 export PATH="$HOME/.local/bin:$PATH"
@@ -37,12 +33,43 @@ Then check:
 ms --help
 ```
 
-From a cloned repo, you can also run:
+If you cloned the repo, use the installer script instead:
 
 ```bash
 git clone https://github.com/NachikethReddyY/model-shelf.git
 cd model-shelf
 bash scripts/install-global.sh
+```
+
+The installer updates common shell files for future terminals:
+
+- `~/.zshrc`
+- `~/.zprofile`
+- `~/.zshenv`
+- `~/.bashrc`
+- `~/.bash_profile`
+
+### Windows PowerShell
+
+Install from GitHub:
+
+```powershell
+uv tool install --force git+https://github.com/NachikethReddyY/model-shelf.git
+```
+
+If `ms` is not found in the current PowerShell session:
+
+```powershell
+$env:Path = "$HOME\.local\bin;$env:Path"
+ms --help
+```
+
+If you cloned the repo, use:
+
+```bash
+git clone https://github.com/NachikethReddyY/model-shelf.git
+cd model-shelf
+pwsh scripts/install-global.ps1
 ```
 
 For local development without global install:

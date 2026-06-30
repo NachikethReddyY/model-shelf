@@ -4,27 +4,68 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 uv tool install --force .
-uv tool update-shell || true
 
 TOOL_BIN="${UV_TOOL_BIN_DIR:-$HOME/.local/bin}"
+PATH_LINE="export PATH=\"$TOOL_BIN:\$PATH\""
+MARKER="# model-shelf ms command"
+
+ensure_path_file() {
+  local file="$1"
+  mkdir -p "$(dirname "$file")"
+  touch "$file"
+  if grep -Fq "$TOOL_BIN" "$file"; then
+    return
+  fi
+  {
+    printf '\n%s\n' "$MARKER"
+    printf '%s\n' "$PATH_LINE"
+  } >> "$file"
+  printf 'Updated %s\n' "$file"
+}
+
+case "${SHELL:-}" in
+  */zsh)
+    ensure_path_file "$HOME/.zshrc"
+    ensure_path_file "$HOME/.zprofile"
+    ensure_path_file "$HOME/.zshenv"
+    ;;
+  */bash)
+    ensure_path_file "$HOME/.bashrc"
+    ensure_path_file "$HOME/.bash_profile"
+    ;;
+  *)
+    ensure_path_file "$HOME/.zshrc"
+    ensure_path_file "$HOME/.bashrc"
+    ;;
+esac
 
 cat <<'MSG'
 
 Installed the global `ms` command.
 MSG
 
-if command -v ms >/dev/null 2>&1; then
+if PATH="$TOOL_BIN:$PATH" command -v ms >/dev/null 2>&1; then
   cat <<'MSG'
 
-`ms` is available now:
+`ms` is installed.
+
+For this terminal session, run:
+
+  export PATH="$TOOL_BIN:$PATH"
+
+Then test:
 
   ms --help
+
+New terminals should pick this up automatically.
 
 MSG
 else
   cat <<MSG
 
-Your current shell does not have $TOOL_BIN on PATH yet.
+The executable was installed to:
+
+  $TOOL_BIN
 
 For this terminal session, run:
 
