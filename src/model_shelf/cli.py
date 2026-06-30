@@ -514,9 +514,10 @@ def format_path(fmt: str, publisher: str, name: str) -> str:
 
 
 def download_commands(repo_id: str, path: str, expected_files: list[str]) -> dict[str, list[str]]:
-    command = ["huggingface-cli", "download", repo_id, "--local-dir", path]
+    hf_cli = [sys.executable, "-m", "huggingface_hub"]
+    command = [*hf_cli, "download", repo_id, "--local-dir", path]
     if expected_files:
-        command = ["huggingface-cli", "download", repo_id, *expected_files, "--local-dir", path]
+        command = [*hf_cli, "download", repo_id, *expected_files, "--local-dir", path]
     return {
         "hf_snapshot": command,
         "git_lfs": ["git", "clone", f"https://huggingface.co/{repo_id}", path],
