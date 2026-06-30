@@ -296,7 +296,7 @@ def install(query: str, fmt: str | None, command_key: str, source: bool, yes: bo
         raise SystemExit("No model query provided.")
     matches = search_registry(shelf_root, query, fmt)
     if not matches:
-        raise SystemExit(f"No model found for: {query}")
+        raise SystemExit(f"No model found for: {query}. Try --source to search HuggingFace directly.")
     if len(matches) == 1:
         model = matches[0]
     else:
@@ -451,15 +451,12 @@ def print_models(models: list[dict[str, Any]], shelf_root: Path) -> None:
     rows = []
     for idx, model in enumerate(models, start=1):
         source_tag = model.get("_source", "")
-        name_display = model["name"]
-        if source_tag == "hf":
-            name_display = f"{model['name']} (HF)"
         rows.append(
             [
                 str(idx),
                 model["format"],
                 model["publisher"],
-                name_display,
+                model["name"],
                 model.get("quantization") or "-",
                 model.get("disk_size") or "?",
                 model.get("approx_ram") or "?",

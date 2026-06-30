@@ -88,7 +88,7 @@ ms update
 
 `ms provider-path <provider>` is dry-run by default. Use `--apply` only after the user confirms the path and provider config target. Use `--config-path` when editing a real provider config file outside the shelf.
 
-`ms update` updates the global CLI by running `uv tool install --force git+https://github.com/NachikethReddyY/model-shelf.git`. Use `ms update --dry-run` to show the command without running it.
+`ms update` updates the global CLI by running `uv tool install --force git+https://github.com/NachikethReddyY/model-shelf.git`. This auto-installs `huggingface-hub` dependency which provides `huggingface-cli` for model downloads. Use `ms update --dry-run` to show the command without running it.
 
 ## Safety
 
