@@ -13,5 +13,8 @@ ms = "model_shelf.cli:main"
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+[dependency-groups]
+dev = ["pytest>=8"]
+
 [tool.uv]
 package = true

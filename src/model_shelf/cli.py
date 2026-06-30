@@ -6,6 +6,8 @@ import plistlib
 import shlex
 import subprocess
 import sys
+import urllib.request
+import urllib.error
 from pathlib import Path
 from typing import Any
 
@@ -15,6 +17,7 @@ SCHEMA_VERSION = "0.2"
 FORMATS = ("gguf", "mlx", "safetensors")
 SUPPORTED_PROVIDERS = ("ollama", "lmstudio", "mlx", "llama.cpp")
 DEFAULT_INSTALL_SOURCE = "git+https://github.com/NachikethReddyY/model-shelf.git"
+HF_API_URL = "https://huggingface.co/api/models"
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -39,6 +42,8 @@ def main(argv: list[str] | None = None) -> None:
     search_parser = subparsers.add_parser("search", help="Search registered model artifacts")
     search_parser.add_argument("query", nargs="?", default="")
     search_parser.add_argument("--format", choices=FORMATS)
+    search_parser.add_argument("--remote", action="store_true", help="Search HuggingFace in addition to local registry.")
+    search_parser.add_argument("--no-local", action="store_true", help="Skip local registry, search HuggingFace only.")
     search_parser.add_argument("--install", action="store_true", help="Interactively select and install a result.")
 
     resolve_parser = subparsers.add_parser("resolve", help="Resolve candidate paths for a runtime")
@@ -51,15 +56,15 @@ def main(argv: list[str] | None = None) -> None:
     commands_parser.add_argument("--format", choices=FORMATS)
 
     install_parser = subparsers.add_parser("install", help="Install model files using registry command templates")
-    install_parser.add_argument("query")
-    install_parser.add_argument("--source", action="store_true", help="Install from the artifact source repository.")
+    install_parser.add_argument("query", nargs="?", default="", help="Model name to search in registry. Optional if --source is a URL.")
+    install_parser.add_argument("--source", help="HF repo URL or source name. If URL, install directly bypassing registry.")
     install_parser.add_argument("--format", choices=FORMATS)
     install_parser.add_argument("--command", dest="download_command", default="hf_snapshot")
     install_parser.add_argument("--yes", action="store_true", help="Run the command. Without this, show a dry run and ask in interactive terminals.")
 
     provider_parser = subparsers.add_parser("provider-path", help="Configure a provider to use a Model Shelf path")
     provider_parser.add_argument("provider", choices=SUPPORTED_PROVIDERS)
-    provider_parser.add_argument("--models-path", help="Path to expose to the provider. Defaults to ./models.")
+    provider_parser.add_argument("--models-path", help="Path to expose to the provider. Defaults to shelf root.")
     provider_parser.add_argument("--config-path", help="Provider config file to edit. Defaults to a shelf-local generated config.")
     provider_parser.add_argument("--apply", action="store_true", help="Write the config. Without this, show the planned edit only.")
 
@@ -76,13 +81,13 @@ def main(argv: list[str] | None = None) -> None:
     elif args.command == "list":
         list_models()
     elif args.command == "search":
-        search(args.query, args.format, args.install)
+        search(args.query, args.format, args.remote, args.no_local, args.install)
     elif args.command == "resolve":
         resolve(args.query, args.runtime, args.format)
     elif args.command == "commands":
         print_commands(args.query, args.format)
     elif args.command == "install":
-        install(args.query, args.format, args.download_command, args.yes)
+        install(args.query, args.format, args.download_command, args.source, args.yes)
     elif args.command == "provider-path":
         provider_path(args.provider, args.models_path, args.config_path, args.apply)
     elif args.command == "update":
@@ -93,11 +98,14 @@ def init(directory: str | None) -> None:
     if directory is None:
         directory = ask_directory()
     shelf_root = Path(directory).expanduser().resolve()
-    for path in ("models/gguf", "models/mlx", "models/safetensors", "provider-configs"):
+    # Auto-create model-shelf subfolder if target doesn't end in "model-shelf"
+    if shelf_root.name != "model-shelf":
+        shelf_root = shelf_root / "model-shelf"
+    for path in ("gguf", "mlx", "safetensors", "provider-configs"):
         (shelf_root / path).mkdir(parents=True, exist_ok=True)
 
     config_path = shelf_root / "model-shelf.json"
-    registry_path = shelf_root / "models" / "registry.json"
+    registry_path = shelf_root / "registry.json"
     if not config_path.exists():
         write_json(config_path, default_config())
     if not registry_path.exists():
@@ -115,7 +123,7 @@ def add(repo: str, fmt: str, name: str | None, publisher: str | None, quant: str
     registry = read_registry(shelf_root)
     registry["models"] = [entry for entry in registry["models"] if entry["id"] != model["id"]]
     registry["models"].append(model)
-    write_json(shelf_root / "models" / "registry.json", registry)
+    write_json(shelf_root / "registry.json", registry)
     print(f"Registered {model['id']}")
     print(f"Path: {model['path']}")
 
@@ -125,14 +133,75 @@ def list_models() -> None:
     print_models(read_registry(shelf_root)["models"], shelf_root)
 
 
-def search(query: str, fmt: str | None, install_selected: bool) -> None:
+def search(query: str, fmt: str | None, remote: bool, no_local: bool, install_selected: bool) -> None:
     shelf_root = find_shelf_root()
-    matches = search_registry(shelf_root, query, fmt)
-    print_models(matches, shelf_root)
+    all_matches = []
+
+    if not no_local:
+        local = search_registry(shelf_root, query, fmt)
+        all_matches.extend(local)
+
+    if remote or (not all_matches and not no_local):
+        try:
+            hf_results = search_huggingface(query, fmt)
+            # Tag remote results so print_models can show origin
+            for m in hf_results:
+                m["_source"] = "hf"
+            all_matches.extend(hf_results)
+        except Exception as exc:
+            print(f"HuggingFace search failed: {exc}", file=sys.stderr)
+
+    if not all_matches:
+        print("No models found.")
+        return
+
+    print_models(all_matches, shelf_root)
     if install_selected:
-        selected = choose_model(matches)
+        selected = choose_model(all_matches)
         if selected:
             install_model(shelf_root, selected, "hf_snapshot", yes=False, ask=True)
+
+
+def search_huggingface(query: str, fmt: str | None) -> list[dict[str, Any]]:
+    """Search HuggingFace model hub via public API."""
+    params = f"?search={urllib.request.quote(query)}&sort=downloads"
+    if fmt:
+        hf_format_map = {"gguf": "gguf", "mlx": "mlx", "safetensors": "transformers"}
+        hf_lib = hf_format_map.get(fmt)
+        if hf_lib:
+            params += f"&library={urllib.request.quote(hf_lib)}"
+    url = HF_API_URL + params
+    req = urllib.request.Request(url, headers={"User-Agent": "model-shelf/0.1.0"})
+    with urllib.request.urlopen(req, timeout=10) as resp:
+        data = json.loads(resp.read().decode())
+
+    results = []
+    for item in data[:20]:  # top 20
+        model_id = item.get("modelId", "")
+        if not model_id or "/" not in model_id:
+            continue
+        publisher, name = model_id.split("/", 1)
+        f = detect_hf_format(item)
+        if fmt and f != fmt:
+            continue
+        results.append(model_from_repo(model_id, f or "safetensors", name, publisher, None, None, None, None))
+    return results
+
+
+def detect_hf_format(item: dict[str, Any]) -> str | None:
+    """Detect format from HuggingFace API response."""
+    lib = (item.get("library_name") or "").lower()
+    if lib in ("gguf",):
+        return "gguf"
+    if lib in ("mlx", "mlx-lm"):
+        return "mlx"
+    if lib in ("transformers",):
+        return "safetensors"
+    # Check pipeline tags for GGUF
+    tags = item.get("tags", [])
+    if any("gguf" in t.lower() for t in tags):
+        return "gguf"
+    return None
 
 
 def resolve(query: str, runtime: str | None, fmt: str | None) -> None:
@@ -165,13 +234,44 @@ def print_commands(query: str, fmt: str | None) -> None:
             print(f"  {name}: {shlex.join(command)}")
 
 
-def install(query: str, fmt: str | None, command_key: str, yes: bool) -> None:
+def install(query: str, fmt: str | None, command_key: str, source: str | None, yes: bool) -> None:
     shelf_root = find_shelf_root()
+
+    # If --source is a HF URL, install directly bypassing registry
+    if source and _is_hf_url(source):
+        repo_id = normalize_repo(source)
+        if not query:
+            query = repo_id
+        fmt = fmt or _infer_format_from_repo(repo_id)
+        publisher, name = split_model_id(repo_id)
+        model = model_from_repo(repo_id, fmt, name, publisher, None, None, None, None)
+        install_model(shelf_root, model, command_key, yes=yes, ask=not yes)
+        return
+
+    # Registry-based install
+    if not query:
+        raise SystemExit("No model query or source URL provided.")
     matches = search_registry(shelf_root, query, fmt)
+    if not matches:
+        raise SystemExit(f"No model found for: {query}")
     model = matches[0] if len(matches) == 1 else choose_model(matches)
     if not model:
         raise SystemExit("No model selected.")
     install_model(shelf_root, model, command_key, yes=yes, ask=not yes)
+
+
+def _is_hf_url(s: str) -> bool:
+    return s.startswith("https://huggingface.co/") or s.startswith("hf.co/")
+
+
+def _infer_format_from_repo(repo_id: str) -> str:
+    """Guess format from repo name keywords."""
+    lower = repo_id.lower()
+    if "gguf" in lower:
+        return "gguf"
+    if "mlx" in lower:
+        return "mlx"
+    return "safetensors"
 
 
 def install_model(shelf_root: Path, model: dict[str, Any], command_key: str, yes: bool, ask: bool) -> None:
@@ -198,12 +298,13 @@ def install_model(shelf_root: Path, model: dict[str, Any], command_key: str, yes
         print("\nDry run only. Re-run with --yes or confirm interactively to install.")
         return
 
+    (shelf_root / model["path"]).parent.mkdir(parents=True, exist_ok=True)
     subprocess.run(command, cwd=shelf_root, check=True)
 
 
 def provider_path(provider: str, models_path: str | None, config_path: str | None, apply: bool) -> None:
     shelf_root = find_shelf_root()
-    target_path = Path(models_path).expanduser() if models_path else shelf_root / "models"
+    target_path = Path(models_path).expanduser() if models_path else shelf_root
     target_path = target_path.resolve()
     plan = provider_config_plan(shelf_root, provider, target_path, config_path)
 
@@ -302,16 +403,20 @@ def print_models(models: list[dict[str, Any]], shelf_root: Path) -> None:
         return
     rows = []
     for idx, model in enumerate(models, start=1):
+        source_tag = model.get("_source", "")
+        name_display = model["name"]
+        if source_tag == "hf":
+            name_display = f"{model['name']} (HF)"
         rows.append(
             [
                 str(idx),
                 model["format"],
                 model["publisher"],
-                model["name"],
+                name_display,
                 model.get("quantization") or "-",
                 model.get("disk_size") or "?",
                 model.get("approx_ram") or "?",
-                "yes" if is_installed(shelf_root, model) else "no",
+                "yes" if source_tag != "hf" and is_installed(shelf_root, model) else "no",
             ]
         )
     print_table(["#", "format", "publisher", "model", "quant", "disk", "ram", "installed"], rows)
@@ -361,7 +466,7 @@ def ensure_storage_path(shelf_root: Path, model: dict[str, Any]) -> None:
 
 
 def format_path(fmt: str, publisher: str, name: str) -> str:
-    return f"models/{fmt}/{publisher}/{name}"
+    return f"{fmt}/{publisher}/{name}"
 
 
 def download_commands(repo_id: str, path: str, expected_files: list[str]) -> dict[str, list[str]]:
@@ -401,7 +506,7 @@ def ask_directory() -> str:
 def find_shelf_root(start: Path | None = None) -> Path:
     current = (start or Path.cwd()).resolve()
     while True:
-        if (current / "model-shelf.json").exists() and (current / "models" / "registry.json").exists():
+        if (current / "model-shelf.json").exists() and (current / "registry.json").exists():
             return current
         if current.parent == current:
             raise SystemExit("No Model Shelf found. Run `ms init` and cd into the chosen shelf directory.")
@@ -409,18 +514,18 @@ def find_shelf_root(start: Path | None = None) -> Path:
 
 
 def read_registry(shelf_root: Path) -> dict[str, Any]:
-    registry_path = shelf_root / "models" / "registry.json"
+    registry_path = shelf_root / "registry.json"
     if not registry_path.exists():
-        raise SystemExit("No models/registry.json found. Run `ms init` first.")
+        raise SystemExit("No registry.json found. Run `ms init` first.")
     return json.loads(registry_path.read_text(encoding="utf-8"))
 
 
 def default_config() -> dict[str, Any]:
     return {
         "schema_version": SCHEMA_VERSION,
-        "shelf_root": "./models",
-        "registry_path": "./models/registry.json",
-        "formats": {"gguf": "models/gguf", "mlx": "models/mlx", "safetensors": "models/safetensors"},
+        "shelf_root": ".",
+        "registry_path": "./registry.json",
+        "formats": {"gguf": "gguf", "mlx": "mlx", "safetensors": "safetensors"},
         "policy": {"visible_models_folder": True, "require_confirmation_before_install": True},
     }
 
@@ -466,7 +571,7 @@ def print_table(headers: list[str], rows: list[list[str]]) -> None:
     print("  ".join(header.ljust(width) for header, width in zip(headers, widths)))
     print("  ".join("-" * width for width in widths))
     for row in rows:
-        print("  ".join(cell.ljust(width) for cell, width in zip(row, widths)))
+        print("  ".join(cell.ljust(row_width) for cell, row_width in zip(row, widths)))
 
 
 def read_json_if_exists(path: Path) -> dict[str, Any]:

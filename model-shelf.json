@@ -1,11 +1,11 @@
 {
   "schema_version": "0.2",
-  "shelf_root": "./models",
-  "registry_path": "./models/registry.json",
+  "shelf_root": ".",
+  "registry_path": "./registry.json",
   "formats": {
-    "gguf": "models/gguf",
-    "mlx": "models/mlx",
-    "safetensors": "models/safetensors"
+    "gguf": "gguf",
+    "mlx": "mlx",
+    "safetensors": "safetensors"
   },
   "policy": {
     "visible_models_folder": true,
