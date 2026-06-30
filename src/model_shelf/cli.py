@@ -257,7 +257,11 @@ def install(query: str, fmt: str | None, command_key: str, source: bool, yes: bo
             raise SystemExit(f"HuggingFace search failed: {exc}")
         if not hf_results:
             raise SystemExit(f"No model found on HuggingFace for: {query}")
-        model = hf_results[0] if len(hf_results) == 1 else choose_model(hf_results)
+        if len(hf_results) == 1:
+            model = hf_results[0]
+        else:
+            print_models(hf_results, shelf_root)
+            model = choose_model(hf_results)
         if not model:
             raise SystemExit("No model selected.")
         install_model(shelf_root, model, command_key, yes=yes, ask=not yes)
@@ -269,7 +273,11 @@ def install(query: str, fmt: str | None, command_key: str, source: bool, yes: bo
     matches = search_registry(shelf_root, query, fmt)
     if not matches:
         raise SystemExit(f"No model found for: {query}")
-    model = matches[0] if len(matches) == 1 else choose_model(matches)
+    if len(matches) == 1:
+        model = matches[0]
+    else:
+        print_models(matches, shelf_root)
+        model = choose_model(matches)
     if not model:
         raise SystemExit("No model selected.")
     install_model(shelf_root, model, command_key, yes=yes, ask=not yes)
