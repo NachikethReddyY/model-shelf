@@ -47,6 +47,18 @@ For local development without global install:
 uv run ms --help
 ```
 
+Update the global `ms` command:
+
+```bash
+ms update
+```
+
+Preview the update command first:
+
+```bash
+ms update --dry-run
+```
+
 ## Create A Shelf
 
 ```bash
@@ -184,6 +196,26 @@ ms commands qwen --format mlx
 ms commands qwen --format safetensors
 ```
 
+## Update The CLI
+
+Update `ms` from the GitHub repo:
+
+```bash
+ms update
+```
+
+This runs:
+
+```bash
+uv tool install --force git+https://github.com/NachikethReddyY/model-shelf.git
+```
+
+To only print the command:
+
+```bash
+ms update --dry-run
+```
+
 ## Configure Provider Paths
 
 Use `provider-path` to point a provider at the shelf model directory.
@@ -223,6 +255,7 @@ ms add Qwen/Qwen3-14B --format safetensors --disk "~28 GB" --ram "~31 GB"
 
 - `ms add` registers metadata only.
 - `ms search` searches the local registry only.
+- `ms update` updates the global CLI from GitHub.
 - `ms install` is dry-run unless `--yes` is passed or you confirm interactively.
 - No downloads happen automatically.
 - No conversions happen automatically.

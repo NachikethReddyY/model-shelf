@@ -71,6 +71,8 @@ ms install qwen --format gguf --source --yes
 ms resolve qwen --runtime llama.cpp
 ms commands qwen --format gguf
 ms provider-path ollama
+ms update --dry-run
+ms update
 ```
 
 `ms search --install` is interactive: it shows matches, asks the user to select a model, shows the exact install command, then asks for one final confirmation.
@@ -78,6 +80,8 @@ ms provider-path ollama
 `ms install <query> --source` is dry-run by default. It may execute a download only when the user passes `--yes` or confirms interactively.
 
 `ms provider-path <provider>` is dry-run by default. Use `--apply` only after the user confirms the path and provider config target. Use `--config-path` when editing a real provider config file outside the shelf.
+
+`ms update` updates the global CLI by running `uv tool install --force git+https://github.com/NachikethReddyY/model-shelf.git`. Use `ms update --dry-run` to show the command without running it.
 
 ## Safety
 

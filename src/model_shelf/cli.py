@@ -14,6 +14,7 @@ DEFAULT_DIR = "./model-shelf"
 SCHEMA_VERSION = "0.2"
 FORMATS = ("gguf", "mlx", "safetensors")
 SUPPORTED_PROVIDERS = ("ollama", "lmstudio", "mlx", "llama.cpp")
+DEFAULT_INSTALL_SOURCE = "git+https://github.com/NachikethReddyY/model-shelf.git"
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -62,6 +63,10 @@ def main(argv: list[str] | None = None) -> None:
     provider_parser.add_argument("--config-path", help="Provider config file to edit. Defaults to a shelf-local generated config.")
     provider_parser.add_argument("--apply", action="store_true", help="Write the config. Without this, show the planned edit only.")
 
+    update_parser = subparsers.add_parser("update", help="Update the global ms command")
+    update_parser.add_argument("--source", default=DEFAULT_INSTALL_SOURCE, help="uv tool install source. Defaults to the Model Shelf GitHub repo.")
+    update_parser.add_argument("--dry-run", action="store_true", help="Print the update command without running it.")
+
     args = parser.parse_args(argv)
 
     if args.command == "init":
@@ -80,6 +85,8 @@ def main(argv: list[str] | None = None) -> None:
         install(args.query, args.format, args.download_command, args.yes)
     elif args.command == "provider-path":
         provider_path(args.provider, args.models_path, args.config_path, args.apply)
+    elif args.command == "update":
+        update(args.source, args.dry_run)
 
 
 def init(directory: str | None) -> None:
@@ -220,6 +227,17 @@ def provider_path(provider: str, models_path: str | None, config_path: str | Non
     else:
         raise SystemExit(f"Unsupported config format: {plan['format']}")
     print(f"Wrote provider config: {plan['path']}")
+
+
+def update(source: str, dry_run: bool) -> None:
+    command = ["uv", "tool", "install", "--force", source]
+    print("Update plan:")
+    print(f"  command: {shlex.join(command)}")
+    if dry_run:
+        print("\nDry run only. Re-run without --dry-run to update ms.")
+        return
+    subprocess.run(command, check=True)
+    print("\nUpdated ms.")
 
 
 def provider_config_plan(shelf_root: Path, provider: str, models_path: Path, config_path: str | None) -> dict[str, Any]:
