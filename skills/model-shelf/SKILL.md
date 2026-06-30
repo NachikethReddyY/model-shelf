@@ -8,7 +8,7 @@ Model Shelf is a local-first storage standard and resolver. It is not a web app,
 
 ## Shelf Layout
 
-The canonical shelf root is `models/`.
+The canonical shelf root is the visible folder `models/`. Do not use `.models/` or any other hidden directory.
 
 Key files:
 

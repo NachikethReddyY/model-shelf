@@ -11,6 +11,8 @@ It gives agents and local runtimes a shared, inspectable place to answer:
 
 Model Shelf is intentionally file-based. There is no web app, database, background service, or API server.
 
+The canonical shelf folder is visible: `models/`. Do not use `.models/` or any other hidden directory.
+
 ## Install
 
 ### macOS / Linux
