@@ -6,6 +6,7 @@ import plistlib
 import shlex
 import subprocess
 import sys
+import urllib.parse
 import urllib.request
 import urllib.error
 from pathlib import Path
@@ -56,8 +57,8 @@ def main(argv: list[str] | None = None) -> None:
     commands_parser.add_argument("--format", choices=FORMATS)
 
     install_parser = subparsers.add_parser("install", help="Install model files using registry command templates")
-    install_parser.add_argument("query", nargs="?", default="", help="Model name to search in registry. Optional if --source is a URL.")
-    install_parser.add_argument("--source", help="HF repo URL or source name. If URL, install directly bypassing registry.")
+    install_parser.add_argument("query", nargs="?", default="", help="Model name or HF URL. If URL, install directly.")
+    install_parser.add_argument("--source", action="store_true", help="Install from source repository (search HF directly, bypass local registry).")
     install_parser.add_argument("--format", choices=FORMATS)
     install_parser.add_argument("--command", dest="download_command", default="hf_snapshot")
     install_parser.add_argument("--yes", action="store_true", help="Run the command. Without this, show a dry run and ask in interactive terminals.")
@@ -164,12 +165,12 @@ def search(query: str, fmt: str | None, remote: bool, no_local: bool, install_se
 
 def search_huggingface(query: str, fmt: str | None) -> list[dict[str, Any]]:
     """Search HuggingFace model hub via public API."""
-    params = f"?search={urllib.request.quote(query)}&sort=downloads"
+    params = f"?search={urllib.parse.quote(query)}&sort=downloads"
     if fmt:
         hf_format_map = {"gguf": "gguf", "mlx": "mlx", "safetensors": "transformers"}
         hf_lib = hf_format_map.get(fmt)
         if hf_lib:
-            params += f"&library={urllib.request.quote(hf_lib)}"
+            params += f"&library={urllib.parse.quote(hf_lib)}"
     url = HF_API_URL + params
     req = urllib.request.Request(url, headers={"User-Agent": "model-shelf/0.1.0"})
     with urllib.request.urlopen(req, timeout=10) as resp:
@@ -234,23 +235,37 @@ def print_commands(query: str, fmt: str | None) -> None:
             print(f"  {name}: {shlex.join(command)}")
 
 
-def install(query: str, fmt: str | None, command_key: str, source: str | None, yes: bool) -> None:
+def install(query: str, fmt: str | None, command_key: str, source: bool, yes: bool) -> None:
     shelf_root = find_shelf_root()
 
-    # If --source is a HF URL, install directly bypassing registry
-    if source and _is_hf_url(source):
-        repo_id = normalize_repo(source)
-        if not query:
-            query = repo_id
+    # If query is a HF URL, install directly bypassing registry
+    if query and _is_hf_url(query):
+        repo_id = normalize_repo(query)
         fmt = fmt or _infer_format_from_repo(repo_id)
         publisher, name = split_model_id(repo_id)
         model = model_from_repo(repo_id, fmt, name, publisher, None, None, None, None)
         install_model(shelf_root, model, command_key, yes=yes, ask=not yes)
         return
 
+    # --source flag: search HuggingFace directly
+    if source:
+        if not query:
+            raise SystemExit("Provide a model name to search on HuggingFace.")
+        try:
+            hf_results = search_huggingface(query, fmt)
+        except Exception as exc:
+            raise SystemExit(f"HuggingFace search failed: {exc}")
+        if not hf_results:
+            raise SystemExit(f"No model found on HuggingFace for: {query}")
+        model = hf_results[0] if len(hf_results) == 1 else choose_model(hf_results)
+        if not model:
+            raise SystemExit("No model selected.")
+        install_model(shelf_root, model, command_key, yes=yes, ask=not yes)
+        return
+
     # Registry-based install
     if not query:
-        raise SystemExit("No model query or source URL provided.")
+        raise SystemExit("No model query provided.")
     matches = search_registry(shelf_root, query, fmt)
     if not matches:
         raise SystemExit(f"No model found for: {query}")
